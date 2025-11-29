@@ -1,0 +1,630 @@
+{% extends "base.html" %}
+
+{% block title %}Case Details - {{ child.name }}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<style>
+    #map {
+        height: 500px;
+        width: 100%;
+        border-radius: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Case Details - {{ child.report_id }}</h2>
+    <div class="admin-actions">
+        <!-- Desktop/Tablet: show full buttons -->
+        <div class="d-none d-md-flex align-items-center">
+            {% if child.status == 'missing' %}
+            <a href="{{ url_for('update_case_status', report_id=child.report_id, status='found') }}"
+                class="btn btn-success me-2">
+                <i class="fas fa-check me-1"></i>Mark as Found
+            </a>
+            {% endif %}
+            {% if child.status == 'found' %}
+            <a href="{{ url_for('update_case_status', report_id=child.report_id, status='missing') }}"
+                class="btn btn-warning me-2">
+                <i class="fas fa-undo me-1"></i>Mark as Missing Again
+            </a>
+            {% endif %}
+            <button type="button" class="btn btn-danger me-2" id="deleteCaseBtn" data-report-id="{{ child.report_id }}"
+                data-child-name="{{ child.name }}">
+                <i class="fas fa-trash me-1"></i>Delete Case
+            </button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back to Admin
+            </a>
+        </div>
+
+        <!-- Mobile: compact actions dropdown -->
+        <div class="dropdown d-md-none">
+            <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="adminActionsMenu"
+                data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-ellipsis-h"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminActionsMenu">
+                {% if child.status == 'missing' %}
+                <li>
+                    <a class="dropdown-item"
+                        href="{{ url_for('update_case_status', report_id=child.report_id, status='found') }}">
+                        <i class="fas fa-check me-2 text-success"></i>Mark as Found
+                    </a>
+                </li>
+                {% endif %}
+                {% if child.status == 'found' %}
+                <li>
+                    <a class="dropdown-item"
+                        href="{{ url_for('update_case_status', report_id=child.report_id, status='missing') }}">
+                        <i class="fas fa-undo me-2 text-warning"></i>Mark as Missing Again
+                    </a>
+                </li>
+                {% endif %}
+                <li>
+                    <hr class="dropdown-divider">
+                </li>
+                <li>
+                    <a class="dropdown-item text-danger delete-case-link-mobile" href="#" id="deleteCaseLinkMobile"
+                        data-report-id="{{ child.report_id }}" data-child-name="{{ child.name }}">
+                        <i class="fas fa-trash me-2"></i>Delete Case
+                    </a>
+                </li>
+                <li>
+                    <hr class="dropdown-divider">
+                </li>
+                <li>
+                    <a class="dropdown-item" href="{{ url_for('admin_dashboard') }}">
+                        <i class="fas fa-arrow-left me-2"></i>Back to Admin
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden Data for Map -->
+<script type="application/json" id="risk-zones-data">
+    {{ risk_zones|tojson|safe }}
+</script>
+<script type="application/json" id="ml-data">
+    {{ {'ml_prediction': ml_prediction, 'ml_refined': ml_refined}|tojson|safe }}
+</script>
+<script type="application/json" id="heat-data">
+    {{ heat_data|tojson|safe }}
+</script>
+
+<!-- Rest of your existing case detail content -->
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Child Information</h5>
+            </div>
+            <div class="card-body">
+                {% if child.photo_filename %}
+                {% if child.photo_filename.startswith('http') %}
+                <!-- Cloudinary URL -->
+                <img src="{{ child.photo_filename }}" class="img-fluid rounded mb-3" alt="{{ child.name }}">
+                {% else %}
+                <!-- Local file -->
+                <img src="{{ url_for('static', filename='uploads/photos/' + child.photo_filename) }}"
+                    class="img-fluid rounded mb-3" alt="{{ child.name }}">
+                {% endif %}
+                {% else %}
+                <div class="placeholder-photo mb-3">
+                    <i class="fas fa-user fa-3x"></i>
+                </div>
+                {% endif %}
+
+                <p><strong>Name:</strong> {{ child.name }}</p>
+                <p><strong>Age:</strong> {{ child.age }} years old</p>
+                <p><strong>Gender:</strong> {{ child.gender }}</p>
+                <p><strong>Status:</strong>
+                    <span class="badge bg-{{ 'danger' if child.status == 'missing' else 'success' }}">
+                        {{ child.status.title() }}
+                    </span>
+                </p>
+                <p><strong>Last Seen:</strong> {{ child.last_seen_location }}</p>
+                <p><strong>Reported:</strong> {{ child.date_reported.strftime('%B %d, %Y at %I:%M %p') }}</p>
+                <p><strong>Description:</strong> {{ child.description }}</p>
+                {% if child.emergency_contact %}
+                <p><strong>Emergency Contact:</strong> {{ child.emergency_contact }}</p>
+                {% endif %}
+
+                {% if child.audio_filename %}
+                <div class="mt-3">
+                    <strong>Voice Recording:</strong><br>
+                    {% if child.audio_filename.startswith('http') %}
+                    <!-- Cloudinary URL -->
+                    <audio controls class="w-100">
+                        <source src="{{ child.audio_filename }}" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    {% else %}
+                    <!-- Local file -->
+                    <audio controls class="w-100">
+                        <source src="{{ url_for('static', filename='uploads/audio/' + child.audio_filename) }}"
+                            type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Admin Additional Controls -->
+                <div class="mt-3">
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('report_found', report_id=child.report_id) }}" class="btn btn-info">View
+                            Public Sighting Page</a>
+
+                        {% if child.status == 'missing' %}
+                        <a href="{{ url_for('update_case_status', report_id=child.report_id, status='closed') }}"
+                            class="btn btn-secondary"
+                            onclick="return confirm('Are you sure you want to close this case?')">Close Case</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Sightings Map</h5>
+            </div>
+            <div class="card-body">
+                <div id="map" style="height: 400px;"></div>
+            </div>
+        </div>
+
+        {% if ml_prediction %}
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5>ML Prediction Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <p><strong>Risk Label:</strong> {{ ml_prediction.risk_label }}</p>
+                        <p><strong>Risk Confidence:</strong> {{ "%.1f"|format((ml_prediction.risk_prob or 0) * 100) }}%
+                        </p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Recovery Probability:</strong> {{ "%.1f"|format((ml_prediction.recovered_prob or 0) *
+                            100) }}%</p>
+                        <p><strong>Est. Recovery Time:</strong> {{ ml_prediction.recovery_time_hours or 'N/A' }} hrs</p>
+                    </div>
+                    <div class="col-md-4">
+                        <p><strong>Initial Predicted Location:</strong><br>{{ ml_prediction.predicted_latitude }}, {{
+                            ml_prediction.predicted_longitude }}</p>
+                        {% if ml_refined %}
+                        <p><strong>Refined Location:</strong><br>{{ ml_refined.lat }}, {{ ml_refined.lon }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        <div class="card">
+            <div class="card-header">
+                <h5>Sighting Reports ({{ sightings|length }})</h5>
+            </div>
+            <div class="card-body">
+                {% if sightings %}
+                <div class="accordion" id="sightingsAccordion">
+                    {% for sighting in sightings %}
+                    {% set item_id = 'sighting' ~ loop.index %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="heading-{{ item_id }}">
+                            <div class="d-flex w-100 align-items-center">
+                                <button class="accordion-button collapsed flex-grow-1" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#collapse-{{ item_id }}"
+                                    aria-expanded="false" aria-controls="collapse-{{ item_id }}">
+                                    <div class="d-flex flex-column flex-md-row w-100">
+                                        <span class="me-3"><strong>#{{ loop.index }}</strong></span>
+                                        <span class="me-3">{{ sighting.sighting_time.strftime('%B %d, %Y %I:%M %p')
+                                            }}</span>
+                                        <span class="text-muted text-truncate">{{ sighting.location }}</span>
+                                    </div>
+                                </button>
+                                <form action="{{ url_for('delete_sighting', sighting_id=sighting.id) }}" method="POST"
+                                    class="ms-2"
+                                    onsubmit="return confirm('Are you sure you want to delete this sighting?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Sighting">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </h2>
+                        <div id="collapse-{{ item_id }}" class="accordion-collapse collapse"
+                            aria-labelledby="heading-{{ item_id }}" data-bs-parent="#sightingsAccordion">
+                            <div class="accordion-body">
+                                <div class="row g-3 align-items-start">
+                                    {% if sighting.photo_filename %}
+                                    <div class="col-md-5">
+                                        <img src="{{ sighting.photo_filename.startswith('http') and sighting.photo_filename or url_for('static', filename='uploads/photos/' + sighting.photo_filename) }}"
+                                            alt="Sighting Photo" class="img-fluid rounded border"
+                                            style="max-height: 320px;">
+                                    </div>
+                                    <div class="col-md-7">
+                                        {% else %}
+                                        <div class="col-12">
+                                            {% endif %}
+                                            <p class="mb-1"><strong>Location:</strong> {{ sighting.location }}</p>
+                                            {% if sighting.description %}
+                                            <p class="mb-1"><strong>Details:</strong> {{ sighting.description }}</p>
+                                            {% endif %}
+                                            {% if sighting.reporter_phone %}
+                                            <p class="mb-1"><strong>Reporter:</strong> {{ sighting.reporter_phone }}</p>
+                                            {% endif %}
+                                            <p class="mb-0"><strong>Coordinates:</strong> {{
+                                                '%.5f'|format(sighting.latitude or 0) }}, {{
+                                                '%.5f'|format(sighting.longitude or 0) }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No sightings reported yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="deleteModalLabel">⚠️ Confirm Deletion</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> This action cannot be undone!
+                    </div>
+                    <p>Are you sure you want to permanently delete this case?</p>
+                    <div class="bg-light p-3 rounded">
+                        <strong>Case:</strong> <span id="deleteCaseName"></span><br>
+                        <strong>Report ID:</strong> <span id="deleteCaseId"></span>
+                    </div>
+                    <p class="mt-3 text-muted">This will also delete:</p>
+                    <ul class="text-muted">
+                        <li>All sighting reports</li>
+                        <li>Uploaded photos and audio files</li>
+                        <li>All associated data</li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form id="deleteForm" method="POST" style="display: inline;">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-trash me-1"></i>Yes, Delete Permanently
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden data for JavaScript -->
+    <script type="application/json" id="map-data">
+{
+    "lastSeenLocation": {
+        "lat": {{ child.last_seen_lat or 'null' }},
+        "lng": {{ child.last_seen_lng or 'null' }},
+        "address": {{ child.last_seen_location|tojson }}
+    },
+    "sightings": [
+        {% for sighting in sightings %}
+        {
+            "lat": {{ sighting.latitude or 'null' }},
+            "lng": {{ sighting.longitude or 'null' }},
+            "location": {{ sighting.location|tojson }},
+            "description": {{ sighting.description|tojson if sighting.description else 'null' }},
+            "time": {{ sighting.sighting_time.isoformat()|tojson }},
+            "index": {{ loop.index }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]
+}
+</script>
+    <script type="application/json" id="ml-data">
+{
+    "ml_prediction": {{ ml_prediction|tojson if ml_prediction else 'null' }},
+    "ml_refined": {{ ml_refined|tojson if ml_refined else 'null' }}
+}
+</script>
+
+    {% endblock %}
+
+    {% block scripts %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Fixed delete button functionality
+            const deleteCaseBtn = document.getElementById('deleteCaseBtn');
+            if (deleteCaseBtn) {
+                deleteCaseBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const reportId = this.getAttribute('data-report-id');
+                    const childName = this.getAttribute('data-child-name');
+
+                    // Set modal content
+                    document.getElementById('deleteCaseName').textContent = childName;
+                    document.getElementById('deleteCaseId').textContent = reportId;
+                    document.getElementById('deleteForm').action = `/admin/delete_case/${reportId}`;
+
+                    // Show modal
+                    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+                    deleteModal.show();
+                });
+            }
+
+            // Mobile delete link inside dropdown
+            const mobileDeleteLink = document.getElementById('deleteCaseLinkMobile');
+            if (mobileDeleteLink) {
+                mobileDeleteLink.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const reportId = this.getAttribute('data-report-id');
+                    const childName = this.getAttribute('data-child-name');
+
+                    document.getElementById('deleteCaseName').textContent = childName;
+                    document.getElementById('deleteCaseId').textContent = reportId;
+                    document.getElementById('deleteForm').action = `/admin/delete_case/${reportId}`;
+
+                    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+                    deleteModal.show();
+                });
+            }
+
+            // Parse map data from JSON
+            var mapData = JSON.parse(document.getElementById('map-data').textContent);
+
+            // Initialize map
+            var map = L.map('map');
+
+            // Add tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            var markers = [];
+
+            // Add last seen location marker (red)
+            if (mapData.lastSeenLocation.lat !== null && mapData.lastSeenLocation.lng !== null) {
+                var lastSeenMarker = L.marker([mapData.lastSeenLocation.lat, mapData.lastSeenLocation.lng], {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map);
+
+                lastSeenMarker.bindPopup('Last seen location: ' + mapData.lastSeenLocation.address);
+                markers.push(lastSeenMarker);
+            }
+
+            // Add sighting markers
+            mapData.sightings.forEach(function (sighting) {
+                if (sighting.lat !== null && sighting.lng !== null) {
+                    var sightingTime = new Date(sighting.time);
+                    var hoursAgo = (new Date() - sightingTime) / (1000 * 60 * 60);
+
+                    // Color based on recency
+                    var iconColor = 'green';
+                    if (hoursAgo > 24) iconColor = 'orange';
+                    if (hoursAgo > 168) iconColor = 'violet'; // 1 week old
+
+                    var sightingMarker = L.marker([sighting.lat, sighting.lng], {
+                        icon: L.icon({
+                            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-' + iconColor + '.png',
+                            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34],
+                            shadowSize: [41, 41]
+                        })
+                    }).addTo(map);
+
+                    var popupContent = '<strong>Sighting #' + sighting.index + '</strong><br>' +
+                        '<strong>Time:</strong> ' + sightingTime.toLocaleString() + '<br>' +
+                        '<strong>Location:</strong> ' + sighting.location + '<br>';
+
+                    if (sighting.description) {
+                        popupContent += '<strong>Details:</strong> ' + sighting.description;
+                    }
+
+                    sightingMarker.bindPopup(popupContent);
+                    markers.push(sightingMarker);
+                }
+            });
+
+            // Add ML prediction markers if available
+            try {
+                var mlDataEl = document.getElementById('ml-data');
+                if (mlDataEl) {
+                    var mlData = JSON.parse(mlDataEl.textContent);
+                    if (mlData && mlData.ml_prediction) {
+                        var p = mlData.ml_prediction;
+                        if (p.predicted_latitude && p.predicted_longitude) {
+                            var predMarker = L.marker([p.predicted_latitude, p.predicted_longitude], {
+                                icon: L.icon({
+                                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                                })
+                            }).addTo(map);
+                            predMarker.bindPopup('ML Initial Prediction');
+                            markers.push(predMarker);
+                        }
+                    }
+
+                    if (mlData && mlData.ml_refined) {
+                        var r = mlData.ml_refined;
+                        if (r.lat && r.lon) {
+                            var refMarker = L.marker([r.lat, r.lon], {
+                                icon: L.icon({
+                                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png',
+                                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                                    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                                })
+                            }).addTo(map);
+                            refMarker.bindPopup('ML Refined Prediction');
+                            markers.push(refMarker);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse ML data for map:', e);
+            }
+
+            // Add Risk Zone Hotspots
+            try {
+                var riskZonesEl = document.getElementById('risk-zones-data');
+                if (riskZonesEl) {
+                    var riskZones = JSON.parse(riskZonesEl.textContent);
+                    riskZones.forEach(function (zone) {
+                        var circle = L.circle([zone.lat, zone.lng], {
+                            color: 'red',
+                            fillColor: '#f03',
+                            fillOpacity: 0.3,
+                            radius: zone.radius
+                        }).addTo(map);
+                        circle.bindPopup('<strong>Risk Zone:</strong> ' + zone.name + '<br><strong>Score:</strong> ' + zone.score);
+                        // Don't add to markers array to avoid zooming out too much for distant zones
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to parse Risk Zone data:', e);
+            }
+
+            // Add Heatmap
+            try {
+                var heatDataEl = document.getElementById('heat-data');
+                if (heatDataEl) {
+                    var heatData = JSON.parse(heatDataEl.textContent);
+                    if (heatData && heatData.length > 0) {
+                        L.heatLayer(heatData, {
+                            radius: 25,
+                            blur: 15,
+                            maxZoom: 17,
+                            max: 1.0,
+                            gradient: { 0.4: 'blue', 0.65: 'lime', 1: 'red' }
+                        }).addTo(map);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse heat data:', e);
+            }
+
+            // Draw Travel Path Vector (Last Seen -> Sighting 1 -> Sighting 2 ... -> Refined Prediction)
+            var pathPoints = [];
+
+            // 1. Start at Last Seen
+            if (mapData.lastSeenLocation.lat !== null && mapData.lastSeenLocation.lng !== null) {
+                pathPoints.push([mapData.lastSeenLocation.lat, mapData.lastSeenLocation.lng]);
+            }
+
+            // 2. Add Sightings in chronological order
+            // We need to get sightings from the template loop or a JSON object
+            // Let's assume we can get them from the DOM or a JS variable
+            // Since we don't have a clean JSON object for sightings here, we can parse the markers or add a script block above
+
+            // Better approach: Use the markers we already added? No, markers array order isn't guaranteed.
+            // Let's use a new data attribute or script block.
+            var sightingsData = [
+                {% for sighting in sightings %}
+                {
+                lat: {{ sighting.latitude if sighting.latitude is not none else 'null' }},
+            lng: {{ sighting.longitude if sighting.longitude is not none else 'null' }},
+            time: "{{ sighting.sighting_time }}"
+                },
+            {% endfor %}
+            ];
+
+        sightingsData.forEach(function (s) {
+            if (s.lat && s.lng) {
+                pathPoints.push([s.lat, s.lng]);
+            }
+        });
+
+        try {
+            var mlDataEl = document.getElementById('ml-data');
+            if (mlDataEl) {
+                var mlData = JSON.parse(mlDataEl.textContent);
+
+                // 3. Add Refined Prediction (Final Destination)
+                if (mlData && mlData.ml_refined && mlData.ml_refined.lat) {
+                    pathPoints.push([mlData.ml_refined.lat, mlData.ml_refined.lon]);
+
+                    // Add Search Radius for Refined Prediction
+                    L.circle([mlData.ml_refined.lat, mlData.ml_refined.lon], {
+                        color: '#ff7800',
+                        fillColor: '#ff7800',
+                        fillOpacity: 0.2,
+                        radius: 3000, // 3km radius
+                        weight: 1,
+                        dashArray: '5, 5'
+                    }).addTo(map).bindPopup('<strong>Refined Search Zone</strong><br>High probability area based on sightings.');
+
+                } else if (mlData && mlData.ml_prediction && mlData.ml_prediction.predicted_latitude) {
+                    // Fallback to initial prediction if no refined one
+                    pathPoints.push([mlData.ml_prediction.predicted_latitude, mlData.ml_prediction.predicted_longitude]);
+
+                    // Add Search Radius for Initial Prediction
+                    L.circle([mlData.ml_prediction.predicted_latitude, mlData.ml_prediction.predicted_longitude], {
+                        color: '#ff7800',
+                        fillColor: '#ff7800',
+                        fillOpacity: 0.2,
+                        radius: 5000, // 5km radius (wider for initial)
+                        weight: 1,
+                        dashArray: '5, 5'
+                    }).addTo(map).bindPopup('<strong>Initial Search Zone</strong><br>Predicted area based on abduction profile.');
+                }
+            }
+        } catch (e) { }
+
+        if (pathPoints.length > 1) {
+            var travelPath = L.polyline(pathPoints, {
+                color: 'blue',
+                weight: 3,
+                opacity: 0.7,
+                dashArray: '10, 10',
+                lineJoin: 'round'
+            }).addTo(map);
+
+            // Add arrow heads or simple markers at turns could be added here, 
+            // but the dashed line clearly indicates the path.
+            map.fitBounds(travelPath.getBounds().pad(0.2));
+        }
+
+        // Fit map to show all markers
+        if (markers.length > 0) {
+            var group = new L.featureGroup(markers);
+            map.fitBounds(group.getBounds().pad(0.1));
+        } else {
+            // Default view if no markers
+            map.setView([39.8283, -98.5795], 4); // Center of USA
+        }
+        });
+    </script>
+    {% endblock %}

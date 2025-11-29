@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}Report Missing Child{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-danger text-white">
+                <h4 class="mb-0">Report Missing Child</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" id="reportForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Child's Name *</label>
+                                <input type="text" class="form-control" id="name" name="name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="age" class="form-label">Age *</label>
+                                <input type="number" class="form-control" id="age" name="age" min="0" max="18" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="gender" class="form-label">Gender *</label>
+                                <select class="form-control" id="gender" name="gender" required>
+                                    <option value="">Select</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Last Seen Location *</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="location" name="location" required
+                                placeholder="Enter address, city, or landmark...">
+                            <button class="btn btn-outline-secondary" type="button" id="useMyLocationBtn"
+                                title="Use my current location">
+                                <i class="fas fa-location-arrow"></i>
+                            </button>
+                        </div>
+                        <input type="hidden" id="latitude" name="latitude">
+                        <input type="hidden" id="longitude" name="longitude">
+                        <div class="form-text">Start typing to see location suggestions or use the map to pin the
+                            location.</div>
+                        <div id="map" style="height: 300px; margin-top: 10px;"></div>
+                        <div id="location-status" class="mt-2"></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="location_subcategory" class="form-label">Specific Location (Optional)</label>
+                        <input type="text" class="form-control" id="location_subcategory" name="location_subcategory"
+                            placeholder="e.g., Gate 3, Food Court, Platform 2, Near Police Booth">
+                        <div class="form-text">Add a precise spot to narrow down search (optional)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="missing_date" class="form-label">Date Last Seen *</label>
+                        <input type="date" class="form-control" id="missing_date" name="missing_date" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="abduction_time" class="form-label">Time Last Seen (Approximate) *</label>
+                        <input type="time" class="form-control" id="abduction_time" name="abduction_time" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description *</label>
+                        <textarea class="form-control" id="description" name="description" rows="4" required
+                            placeholder="Physical appearance, clothing, distinctive features..."></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="emergency_contact" class="form-label">Emergency Contact *</label>
+                        <input type="text" class="form-control" id="emergency_contact" name="emergency_contact" required
+                            placeholder="Phone number or email for emergency contact">
+                        <div class="form-text">This will be shown to people reporting sightings</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="photo" class="form-label">Recent Photo *</label>
+                                <input type="file" class="form-control" id="photo" name="photo" accept="image/*"
+                                    required>
+                                <div class="form-text">Max file size: 16MB</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="audio" class="form-label">Voice Recording (Optional)</label>
+                                <input type="file" class="form-control" id="audio" name="audio" accept="audio/*">
+                                <div class="form-text">Child's voice for identification</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <strong>Important:</strong> Please ensure all information is accurate. False reports are illegal
+                        and can hinder actual search efforts.
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-danger btn-lg">Submit Missing Child Report</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let map;
+    let marker;
+    let geocodeTimeout;
+
+    // Initialize map on load
+    document.addEventListener('DOMContentLoaded', function () {
+        initMap();
+    });
+
+    function initMap() {
+        // Default to Pune/India or a central location if no coordinates
+        const defaultLat = 18.5204;
+        const defaultLng = 73.8567;
+
+        map = L.map('map').setView([defaultLat, defaultLng], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Add click handler
+        map.on('click', function (e) {
+            handleMapClick(e.latlng.lat, e.latlng.lng);
+        });
+    }
+
+    function handleMapClick(lat, lng) {
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+        } else {
+            marker = L.marker([lat, lng]).addTo(map);
+        }
+
+        // Update hidden fields
+        document.getElementById('latitude').value = lat;
+        document.getElementById('longitude').value = lng;
+
+        // Reverse geocode
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
+            headers: { 'Accept': 'application/json' }
+        })
+            .then(response => response.json())
+            .then(data => {
+                const displayName = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                document.getElementById('location').value = displayName;
+                marker.bindPopup(`Location: ${displayName}`).openPopup();
+                document.getElementById('location-status').innerHTML = '<small class="text-success">✓ Location pinned on map</small>';
+            })
+            .catch(() => {
+                document.getElementById('location').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            });
+    }
+
+    document.getElementById('location').addEventListener('input', function () {
+        const location = this.value.trim();
+
+        if (geocodeTimeout) {
+            clearTimeout(geocodeTimeout);
+        }
+
+        document.getElementById('location-status').innerHTML = '';
+
+        if (location.length > 2) {
+            this.style.backgroundColor = '#f8f9fa';
+            this.style.borderColor = '#007bff';
+            document.getElementById('location-status').innerHTML = '<small class="text-info">Searching location...</small>';
+
+            geocodeTimeout = setTimeout(() => {
+                geocodeLocation(location, this);
+            }, 500);
+        }
+    });
+
+    // Use my current location
+    document.getElementById('useMyLocationBtn').addEventListener('click', function () {
+        const status = document.getElementById('location-status');
+        if (!navigator.geolocation) {
+            status.innerHTML = '<small class="text-danger">Geolocation is not supported by your browser.</small>';
+            return;
+        }
+        status.innerHTML = '<small class="text-info">Fetching your location...</small>';
+        navigator.geolocation.getCurrentPosition(async function (pos) {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+
+            handleMapClick(lat, lng);
+            map.setView([lat, lng], 15);
+            status.innerHTML = '<small class="text-success">✓ Location set from your current position</small>';
+
+        }, function (err) {
+            console.error('Geolocation error:', err);
+            status.innerHTML = '<small class="text-danger">Failed to get your location. Please allow permission or enter manually.</small>';
+        }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+    });
+
+    function geocodeLocation(location, inputElement) {
+        fetch(`/api/geocode?location=${encodeURIComponent(location)}`)
+            .then(response => response.json())
+            .then(data => {
+                inputElement.style.backgroundColor = '';
+
+                if (data.success && data.lat && data.lng) {
+                    updateMap(data.lat, data.lng, location);
+                    inputElement.style.borderColor = '#28a745';
+                    document.getElementById('location-status').innerHTML = '<small class="text-success">✓ Location found</small>';
+                } else {
+                    inputElement.style.borderColor = '#dc3545';
+                    document.getElementById('location-status').innerHTML = '<small class="text-danger">Location not found. Please pin on map.</small>';
+                    // Do NOT hide map
+                }
+            })
+            .catch(error => {
+                console.error('Geocoding error:', error);
+                inputElement.style.backgroundColor = '';
+                inputElement.style.borderColor = '#dc3545';
+                document.getElementById('location-status').innerHTML = '<small class="text-danger">Error searching. Please pin on map.</small>';
+            });
+    }
+
+    function updateMap(lat, lng, locationName) {
+        map.setView([lat, lng], 15);
+
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+        } else {
+            marker = L.marker([lat, lng]).addTo(map);
+        }
+
+        marker.bindPopup(`Location: ${locationName}`).openPopup();
+
+        document.getElementById('latitude').value = lat;
+        document.getElementById('longitude').value = lng;
+    }
+
+    function hideMap() {
+        // Deprecated: Map is now always visible
+    }
+
+    // Form validation
+    document.getElementById('reportForm').addEventListener('submit', function (e) {
+        const locationInput = document.getElementById('location');
+        const location = locationInput.value.trim();
+
+        if (location.length < 3) {
+            e.preventDefault();
+            alert('Please enter a more specific location (at least 3 characters)');
+            locationInput.focus();
+            return false;
+        }
+    });
+
+    // Photo preview
+    document.getElementById('photo').addEventListener('change', function (event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                let preview = document.getElementById('photo-preview');
+                if (!preview) {
+                    preview = document.createElement('img');
+                    preview.id = 'photo-preview';
+                    preview.className = 'img-thumbnail mt-2';
+                    preview.style.maxWidth = '200px';
+                    preview.style.maxHeight = '200px';
+                    document.getElementById('photo').parentNode.appendChild(preview);
+                }
+                preview.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+</script>
+{% endblock %}
