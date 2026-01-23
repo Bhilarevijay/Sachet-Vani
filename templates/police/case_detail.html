@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+
+{% block title %}Case Details - {{ child.name }} - Police{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="row">
+        <!-- Child Info -->
+        <div class="col-lg-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0"><i class="fas fa-user me-2"></i>Child Information</h5>
+                </div>
+                <div class="card-body">
+                    {% if child.photo_filename %}
+                    <div class="text-center mb-3">
+                        {% if child.photo_filename.startswith('http') %}
+                        <img src="{{ child.photo_filename }}" alt="{{ child.name }}" class="img-fluid rounded"
+                            style="max-height: 250px;">
+                        {% else %}
+                        <img src="{{ url_for('static', filename='uploads/photos/' + child.photo_filename) }}"
+                            alt="{{ child.name }}" class="img-fluid rounded" style="max-height: 250px;">
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    <h4 class="text-danger">{{ child.name }}</h4>
+                    <table class="table table-sm">
+                        <tr>
+                            <th>Age:</th>
+                            <td>{{ child.age }} years</td>
+                        </tr>
+                        <tr>
+                            <th>Gender:</th>
+                            <td>{{ child.gender }}</td>
+                        </tr>
+                        <tr>
+                            <th>Last Seen:</th>
+                            <td>{{ child.last_seen_location }}</td>
+                        </tr>
+                        <tr>
+                            <th>Date Reported:</th>
+                            <td>{{ child.date_reported.strftime('%B %d, %Y') }}</td>
+                        </tr>
+                        <tr>
+                            <th>Status:</th>
+                            <td>
+                                <span class="badge bg-{{ 'danger' if child.status == 'missing' else 'success' }}">
+                                    {{ child.status|upper }}
+                                </span>
+                            </td>
+                        </tr>
+                    </table>
+
+                    {% if child.description %}
+                    <p><strong>Description:</strong> {{ child.description }}</p>
+                    {% endif %}
+
+                    <hr>
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('download_poster', report_id=child.report_id) }}" class="btn btn-primary"
+                            target="_blank">
+                            <i class="fas fa-file-image me-1"></i>Download Poster
+                        </a>
+                        <a href="{{ url_for('report_found', report_id=child.report_id) }}" class="btn btn-success">
+                            <i class="fas fa-eye me-1"></i>View Public Sighting Page
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sightings -->
+        <div class="col-lg-8 mb-4">
+            <div class="card">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Sighting Reports</h5>
+                    <span class="badge bg-light text-dark">{{ sightings|length }} sightings</span>
+                </div>
+                <div class="card-body">
+                    {% if sightings %}
+                    {% for sighting in sightings %}
+                    <div
+                        class="card mb-3 {{ 'border-success' if sighting.face_match_score and sighting.face_match_score >= 70 else '' }}">
+                        <div class="card-body">
+                            <div class="row">
+                                {% if sighting.photo_filename %}
+                                <div class="col-md-3 mb-3 mb-md-0">
+                                    {% if sighting.photo_filename.startswith('http') %}
+                                    <img src="{{ sighting.photo_filename }}" alt="Sighting" class="img-fluid rounded"
+                                        style="max-height: 150px;">
+                                    {% else %}
+                                    <img src="{{ url_for('static', filename='uploads/photos/' + sighting.photo_filename) }}"
+                                        alt="Sighting" class="img-fluid rounded" style="max-height: 150px;">
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-9">
+                                    {% else %}
+                                    <div class="col-12">
+                                        {% endif %}
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-calendar me-1"></i>
+                                                {{ sighting.sighting_time.strftime('%B %d, %Y at %I:%M %p') }}
+                                            </h6>
+                                            {% if sighting.face_match_score is not none %}
+                                            <span
+                                                class="badge bg-{{ 'success' if sighting.face_match_score >= 70 else ('warning' if sighting.face_match_score >= 50 else 'secondary') }} fs-6">
+                                                <i class="fas fa-user-check me-1"></i>{{
+                                                '%.1f'|format(sighting.face_match_score) }}% Match
+                                            </span>
+                                            {% endif %}
+                                        </div>
+
+                                        <p class="mb-1"><strong><i
+                                                    class="fas fa-map-marker-alt me-1"></i>Location:</strong> {{
+                                            sighting.location }}</p>
+
+                                        {% if sighting.description %}
+                                        <p class="mb-1"><strong><i class="fas fa-comment me-1"></i>Description:</strong>
+                                            {{ sighting.description }}</p>
+                                        {% endif %}
+
+                                        {% if sighting.reporter_phone %}
+                                        <p class="mb-1"><strong><i class="fas fa-phone me-1"></i>Reporter:</strong> {{
+                                            sighting.reporter_phone }}</p>
+                                        {% endif %}
+
+                                        <p class="mb-0 text-muted small">
+                                            <i class="fas fa-location-crosshairs me-1"></i>
+                                            Coordinates: {{ '%.5f'|format(sighting.latitude) }}, {{
+                                            '%.5f'|format(sighting.longitude) }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-center py-4 text-muted">
+                            <i class="fas fa-search fa-3x mb-3"></i>
+                            <p class="mb-0">No sightings reported yet</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="fas fa-map me-2"></i>Sightings Map</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="map" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endblock %}
+
+    {% block scripts %}
+    <style>
+        .custom-marker {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        .leaflet-div-icon {
+            background: transparent;
+            border: none;
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Get coordinates
+            var childLat = {{ child.last_seen_lat|default (20.5937)
+        }};
+        var childLng = {{ child.last_seen_lng|default (78.9629) }};
+
+        // Initialize map
+        var map = L.map('map').setView([childLat, childLng], 8);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Purple marker for abduction location
+        var purpleIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background:#6f42c1;color:white;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);"><i class="fas fa-exclamation-triangle"></i></div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+
+        // Blue marker for sightings
+        var blueIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background:#007bff;color:white;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);"><i class="fas fa-eye"></i></div>',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+        });
+
+        // Green marker for high face match
+        var greenIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background:#28a745;color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);"><i class="fas fa-user-check"></i></div>',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+
+        // Add abduction location marker
+        {% if child.last_seen_lat and child.last_seen_lng %}
+        L.marker([{{ child.last_seen_lat }}, {{ child.last_seen_lng }}], { icon: purpleIcon })
+            .addTo(map)
+            .bindPopup('<b>Abduction/Last Seen Location</b><br>{{ child.name }}<br>{{ child.last_seen_location }}');
+        {% endif %}
+
+        // Add sighting markers
+        {% for sighting in sightings %}
+        {% if sighting.face_match_score and sighting.face_match_score >= 70 %}
+        L.marker([{{ sighting.latitude }}, {{ sighting.longitude }}], { icon: greenIcon })
+        {% else %}
+        L.marker([{{ sighting.latitude }}, {{ sighting.longitude }}], { icon: blueIcon })
+        {% endif %}
+        .addTo(map)
+            .bindPopup('<b>Sighting #{{ loop.index }}</b><br>{{ sighting.location }}<br>{% if sighting.face_match_score %}Face Match: {{ "%.1f"|format(sighting.face_match_score) }}%{% endif %}');
+        {% endfor %}
+
+        // Add legend
+        var legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = '<div style="background:white;padding:10px;border-radius:5px;box-shadow:0 2px 5px rgba(0,0,0,0.2);font-size:12px;">' +
+                '<div style="font-weight:bold;margin-bottom:5px;">Map Legend</div>' +
+                '<div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#6f42c1;margin-right:5px;"></span>Abduction Location</div>' +
+                '<div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#007bff;margin-right:5px;"></span>Sighting</div>' +
+                '<div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#28a745;margin-right:5px;"></span>High Face Match</div>' +
+                '</div>';
+            return div;
+        };
+        legend.addTo(map);
+});
+    </script>
+    {% endblock %}

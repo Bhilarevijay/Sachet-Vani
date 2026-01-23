@@ -162,6 +162,11 @@
                         <a href="{{ url_for('report_found', report_id=child.report_id) }}" class="btn btn-info">View
                             Public Sighting Page</a>
 
+                        <a href="{{ url_for('download_poster', report_id=child.report_id) }}"
+                            class="btn btn-outline-primary" target="_blank">
+                            <i class="fas fa-file-image me-1"></i>Download Poster
+                        </a>
+
                         {% if child.status == 'missing' %}
                         <a href="{{ url_for('update_case_status', report_id=child.report_id, status='closed') }}"
                             class="btn btn-secondary"
@@ -222,21 +227,23 @@
                     {% set item_id = 'sighting' ~ loop.index %}
                     <div class="accordion-item">
                         <h2 class="accordion-header" id="heading-{{ item_id }}">
-                            <div class="d-flex w-100 align-items-center">
-                                <button class="accordion-button collapsed flex-grow-1" type="button"
+                            <div class="d-flex w-100 align-items-center" style="gap: 0.5rem;">
+                                <button class="accordion-button collapsed flex-grow-1 pe-2" type="button"
                                     data-bs-toggle="collapse" data-bs-target="#collapse-{{ item_id }}"
-                                    aria-expanded="false" aria-controls="collapse-{{ item_id }}">
-                                    <div class="d-flex flex-column flex-md-row w-100">
-                                        <span class="me-3"><strong>#{{ loop.index }}</strong></span>
-                                        <span class="me-3">{{ sighting.sighting_time.strftime('%B %d, %Y %I:%M %p')
-                                            }}</span>
-                                        <span class="text-muted text-truncate">{{ sighting.location }}</span>
+                                    aria-expanded="false" aria-controls="collapse-{{ item_id }}" style="min-width: 0;">
+                                    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center"
+                                        style="min-width: 0; overflow: hidden;">
+                                        <span class="me-2 fw-bold text-nowrap">#{{ loop.index }}</span>
+                                        <span class="me-2 text-muted small text-nowrap">{{
+                                            sighting.sighting_time.strftime('%b %d, %Y') }}</span>
+                                        <span class="text-truncate d-none d-md-inline">{{ sighting.location[:40] }}{% if
+                                            sighting.location|length > 40 %}...{% endif %}</span>
                                     </div>
                                 </button>
                                 <form action="{{ url_for('delete_sighting', sighting_id=sighting.id) }}" method="POST"
-                                    class="ms-2"
+                                    class="flex-shrink-0" style="margin: 0; padding: 0 0.5rem;"
                                     onsubmit="return confirm('Are you sure you want to delete this sighting?');">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Sighting">
+                                    <button type="submit" class="btn btn-sm btn-danger" title="Delete Sighting">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </form>
@@ -263,9 +270,26 @@
                                             {% if sighting.reporter_phone %}
                                             <p class="mb-1"><strong>Reporter:</strong> {{ sighting.reporter_phone }}</p>
                                             {% endif %}
-                                            <p class="mb-0"><strong>Coordinates:</strong> {{
+                                            <p class="mb-1"><strong>Coordinates:</strong> {{
                                                 '%.5f'|format(sighting.latitude or 0) }}, {{
                                                 '%.5f'|format(sighting.longitude or 0) }}</p>
+                                            {% if sighting.face_match_score is not none %}
+                                            <p class="mb-0">
+                                                <strong>Face Match:</strong>
+                                                <span
+                                                    class="badge bg-{{ 'success' if sighting.face_match_score >= 70 else ('warning' if sighting.face_match_score >= 50 else 'secondary') }}">
+                                                    <i class="fas fa-user-check me-1"></i>{{
+                                                    '%.1f'|format(sighting.face_match_score) }}%
+                                                </span>
+                                                {% if sighting.face_match_score >= 70 %}
+                                                <small class="text-success ms-1"><i class="fas fa-check-circle"></i>
+                                                    High confidence</small>
+                                                {% elif sighting.face_match_score >= 50 %}
+                                                <small class="text-warning ms-1"><i
+                                                        class="fas fa-exclamation-circle"></i> Moderate</small>
+                                                {% endif %}
+                                            </p>
+                                            {% endif %}
                                         </div>
                                     </div>
                                 </div>

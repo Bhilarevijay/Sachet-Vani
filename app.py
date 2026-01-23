@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
@@ -16,8 +16,19 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from cloudinary.utils import cloudinary_url
+import threading
+import time
+from functools import lru_cache
 
 from config import Config
+
+# Import messaging utilities for Telegram/Discord alerts
+try:
+    from utils.messaging import send_telegram_alert, send_discord_alert, broadcast_alert
+    MESSAGING_AVAILABLE = True
+except ImportError:
+    MESSAGING_AVAILABLE = False
+    print("⚠️ Messaging utilities not available")
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -266,6 +277,7 @@ class Sighting(db.Model):
     reporter_phone = db.Column(db.String(20))
     photo_filename = db.Column(db.String(500))  # Optional photo proof for sighting
     sighting_time = db.Column(db.DateTime, default=datetime.utcnow)
+    face_match_score = db.Column(db.Float, nullable=True)  # 0-100 score from face comparison
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -396,38 +408,94 @@ def upload_audio_to_cloudinary(file, public_id):
         print(f"Cloudinary audio upload error: {str(e)}")
         return None
 
-def get_location_coordinates(location_name):
-    """Get coordinates from location name using Nominatim API"""
-    if not location_name:
+# Rate limiting for Nominatim API
+_last_geocode_request = 0
+_geocode_lock = threading.Lock()
+
+def _geocode_with_google_maps(location_name):
+    """Geocode using Google Maps API (optional, requires API key)"""
+    google_api_key = app.config.get('GOOGLE_MAPS_API_KEY') or os.environ.get('GOOGLE_MAPS_API_KEY')
+
+    if not google_api_key:
         return None, None
-    
+
     try:
-        location_encoded = location_name.strip().replace(' ', '+')
-        url = f"https://nominatim.openstreetmap.org/search?format=json&q={location_encoded}&limit=1"
-        
-        headers = {
-            'User-Agent': 'ChildAbductionSystem/1.0 (contact@example.com)'
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {
+            'address': location_name,
+            'key': google_api_key
         }
-        
-        response = requests.get(url, headers=headers, timeout=10)
+
+        response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+
+        if data['status'] == 'OK' and data.get('results'):
+            location = data['results'][0]['geometry']['location']
+            lat = location['lat']
+            lng = location['lng']
+            print(f"✅ Geocoded '{location_name}' to: {lat}, {lng} (Google Maps)")
+            return lat, lng
+        else:
+            print(f"⚠️ Google Maps: No results for '{location_name}' (status: {data.get('status')})")
+            return None, None
+
+    except Exception as e:
+        print(f"❌ Google Maps geocoding error: {str(e)}")
+        return None, None
+
+def _geocode_with_nominatim(location_name):
+    """Geocode using Nominatim API with rate limiting"""
+    global _last_geocode_request
+
+    try:
+        # Rate limiting: ensure at least 1 second between requests
+        with _geocode_lock:
+            time_since_last = time.time() - _last_geocode_request
+            if time_since_last < 1.0:
+                time.sleep(1.0 - time_since_last)
+            _last_geocode_request = time.time()
+
+        location_encoded = location_name.strip().replace(' ', '+')
+        url = f"https://nominatim.openstreetmap.org/search?format=json&q={location_encoded}&limit=1"
+
+        headers = {
+            'User-Agent': 'Sachet-ChildSafety/1.0 (https://sachet.onrender.com)'
+        }
+
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
         if data and len(data) > 0:
             lat = float(data[0]['lat'])
             lng = float(data[0]['lon'])
-            if not app.config['DEBUG']:
-                print(f"Geocoded '{location_name}' to: {lat}, {lng}")
+            print(f"✅ Geocoded '{location_name}' to: {lat}, {lng} (Nominatim)")
             return lat, lng
         else:
-            if not app.config['DEBUG']:
-                print(f"No results found for location: {location_name}")
+            print(f"⚠️ Nominatim: No results for '{location_name}'")
             return None, None
-            
-    except Exception as e:
-        if not app.config['DEBUG']:
-            print(f"Geocoding error for '{location_name}': {str(e)}")
+
+    except requests.exceptions.Timeout:
+        print(f"❌ Nominatim timeout for '{location_name}'")
         return None, None
+    except Exception as e:
+        print(f"❌ Nominatim error for '{location_name}': {str(e)}")
+        return None, None
+
+@lru_cache(maxsize=100)  # Cache 100 most recent locations
+def get_location_coordinates(location_name):
+    """Get coordinates from location name using Google Maps (if configured) or Nominatim"""
+    if not location_name:
+        return None, None
+
+    # Try Google Maps first if API key is configured (more reliable)
+    lat, lng = _geocode_with_google_maps(location_name)
+    if lat and lng:
+        return lat, lng
+
+    # Fallback to Nominatim (free but rate-limited)
+    return _geocode_with_nominatim(location_name)
 
 def send_sms_alert(message):
     """Send SMS alerts to predefined demo phone numbers"""
@@ -520,6 +588,44 @@ def send_sms_alert_to_numbers(message, phone_numbers):
         print(f"❌ Twilio client error: {str(e)}")
 
     return sent_count
+
+def broadcast_all_alerts(message, phone_numbers=None, photo_url=None):
+    """
+    Broadcast alert to all configured channels: SMS, Telegram, Discord.
+    
+    Args:
+        message: Text message to send
+        phone_numbers: Optional list of phone numbers for SMS (uses DEMO_PHONE_NUMBERS if None)
+        photo_url: Optional photo URL to include in Telegram/Discord
+    
+    Returns:
+        dict: Results from each channel
+    """
+    results = {'sms': 0, 'telegram': False, 'discord': False}
+    
+    # Send SMS
+    if phone_numbers:
+        results['sms'] = send_sms_alert_to_numbers(message, phone_numbers)
+    else:
+        results['sms'] = send_sms_alert(message)
+    
+    # Send Telegram and Discord if messaging utilities are available
+    if MESSAGING_AVAILABLE:
+        try:
+            results['telegram'] = send_telegram_alert(message, photo_url)
+        except Exception as e:
+            print(f"❌ Telegram broadcast error: {str(e)}")
+        
+        try:
+            results['discord'] = send_discord_alert(message, photo_url)
+        except Exception as e:
+            print(f"❌ Discord broadcast error: {str(e)}")
+    
+    # Log summary
+    channels_successful = sum(1 for k, v in results.items() if (v > 0 if isinstance(v, int) else v))
+    print(f"📢 Alert broadcast: {channels_successful}/3 channels successful")
+    
+    return results
 
 # Analytics Functions
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -914,6 +1020,20 @@ def index():
 
 @app.route('/report', methods=['GET', 'POST'])
 def report_missing():
+    # Check for police authorization - either token or session login
+    police_token = request.args.get('token') or session.get('police_token')
+    valid_token = app.config.get('POLICE_ACCESS_TOKEN')
+    is_police_logged_in = session.get('police_logged_in')
+    
+    # Allow access if: valid token OR logged in as police
+    if not is_police_logged_in and (not valid_token or police_token != valid_token):
+        flash('This form is for authorized police personnel only. Please use the public sighting form to report sightings.', 'warning')
+        return redirect(url_for('index'))
+    
+    # Store token in session for form submission (only if using token method)
+    if police_token:
+        session['police_token'] = police_token
+    
     if request.method == 'POST':
         report_id = f"MC{datetime.now().strftime('%Y%m%d')}{str(uuid.uuid4())[:8].upper()}"
         
@@ -1077,6 +1197,39 @@ def report_found(report_id):
                     photo_filename = secure_filename(f"{report_id}_sighting_{photo.filename}")
                     sighting_photo_url = save_file_locally(photo, 'photos', photo_filename)
         
+        # Parse sighting date and time from form
+        sighting_date_str = request.form.get('sighting_date')
+        sighting_time_str = request.form.get('sighting_time')
+        
+        sighting_datetime = datetime.utcnow()  # Default to now
+        hours_since_abduction = None
+        
+        if sighting_date_str and sighting_time_str:
+            try:
+                sighting_datetime = datetime.strptime(
+                    f"{sighting_date_str} {sighting_time_str}", 
+                    "%Y-%m-%d %H:%M"
+                )
+                
+                # Calculate hours since abduction if we have missing_date and abduction_time
+                if missing_child.missing_date:
+                    # Combine missing_date with abduction_time (stored as hour float)
+                    abduction_hour = int(missing_child.abduction_time or 12)
+                    abduction_minute = int((missing_child.abduction_time or 12) % 1 * 60)
+                    abduction_datetime = datetime.combine(
+                        missing_child.missing_date,
+                        datetime.min.time().replace(hour=abduction_hour, minute=abduction_minute)
+                    )
+                    
+                    time_diff = sighting_datetime - abduction_datetime
+                    hours_since_abduction = time_diff.total_seconds() / 3600
+                    if hours_since_abduction < 0:
+                        hours_since_abduction = 0  # Can't be negative
+                    
+            except ValueError as e:
+                print(f"Error parsing sighting date/time: {e}")
+                sighting_datetime = datetime.utcnow()
+        
         sighting = Sighting(
             report_id=report_id,
             location=location,
@@ -1084,11 +1237,34 @@ def report_found(report_id):
             longitude=lng,
             description=description,
             reporter_phone=reporter_phone,
-            photo_filename=sighting_photo_url
+            photo_filename=sighting_photo_url,
+            sighting_time=sighting_datetime
         )
         
         db.session.add(sighting)
         db.session.commit()
+        
+        # Face comparison (if both photos exist)
+        if sighting_photo_url and missing_child.photo_filename:
+            try:
+                from utils.face_compare import compare_faces, is_available
+                if is_available():
+                    # Get paths for comparison
+                    child_photo = missing_child.photo_filename
+                    if not child_photo.startswith('http'):
+                        child_photo = os.path.join(app.config['UPLOAD_FOLDER'], 'photos', child_photo)
+                    
+                    sighting_photo = sighting_photo_url
+                    if not sighting_photo.startswith('http'):
+                        sighting_photo = os.path.join(app.config['UPLOAD_FOLDER'], 'photos', sighting_photo)
+                    
+                    match_score = compare_faces(child_photo, sighting_photo)
+                    if match_score is not None:
+                        sighting.face_match_score = match_score
+                        db.session.commit()
+                        print(f"✅ Face comparison: {match_score}% match")
+            except Exception as e:
+                print(f"⚠️ Face comparison skipped: {e}")
         
         report_url = request.url_root + f"found/{report_id}"
         sms_message = (
@@ -1149,6 +1325,9 @@ def admin_login():
                 db.session.add(user)
                 db.session.commit()
             login_user(user)
+            # Clear police session to prevent role conflicts
+            session.pop('police_logged_in', None)
+            session.pop('police_username', None)
             return redirect(url_for('admin_dashboard'))
         else:
             _register_failed_attempt(client_key)
@@ -1298,6 +1477,98 @@ def admin_logout():
     logout_user()
     return redirect(url_for('index'))
 
+# ============ POLICE PORTAL ============
+
+@app.route('/police/login', methods=['GET', 'POST'])
+def police_login():
+    """Police login portal"""
+    # Block admin users from accessing police login
+    if current_user.is_authenticated:
+        flash('Admin users cannot access Police Portal. Please use Admin Dashboard.', 'warning')
+        return redirect(url_for('admin_dashboard'))
+    
+    # Check if already logged in as police
+    if session.get('police_logged_in'):
+        return redirect(url_for('police_dashboard'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        
+        # Validate credentials
+        if (username == app.config.get('POLICE_USERNAME') and 
+            password == app.config.get('POLICE_PASSWORD')):
+            # Clear any admin session to prevent role conflicts
+            logout_user()
+            session['police_logged_in'] = True
+            session['police_username'] = username
+            flash('Welcome to Police Portal', 'success')
+            return redirect(url_for('police_dashboard'))
+        else:
+            flash('Invalid credentials', 'error')
+    
+    return render_template('police/login.html')
+
+@app.route('/police/dashboard')
+def police_dashboard():
+    """Police dashboard showing all cases"""
+    # Prevent admin from accessing police portal (role separation)
+    if current_user.is_authenticated:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_dashboard'))
+    
+    if not session.get('police_logged_in'):
+        flash('Please login to access the Police Portal', 'warning')
+        return redirect(url_for('police_login'))
+    
+    cases = MissingChild.query.order_by(MissingChild.date_reported.desc()).all()
+    
+    # Calculate stats
+    active_cases = len([c for c in cases if c.status == 'missing'])
+    resolved_cases = len([c for c in cases if c.status in ['found', 'closed']])
+    total_sightings = sum(len(c.sightings) for c in cases)
+    
+    # Count high face match sightings
+    high_match_sightings = 0
+    for case in cases:
+        for sighting in case.sightings:
+            if sighting.face_match_score and sighting.face_match_score >= 70:
+                high_match_sightings += 1
+    
+    stats = {
+        'active_cases': active_cases,
+        'resolved_cases': resolved_cases,
+        'total_sightings': total_sightings,
+        'high_match_sightings': high_match_sightings
+    }
+    
+    return render_template('police/dashboard.html', cases=cases, stats=stats, config=app.config)
+
+@app.route('/police/case/<report_id>')
+def police_case_detail(report_id):
+    """Police case detail with face match"""
+    # Prevent admin from accessing police portal (role separation)
+    if current_user.is_authenticated:
+        flash('Admin users should use the Admin Dashboard', 'info')
+        return redirect(url_for('admin_case_detail', report_id=report_id))
+    
+    if not session.get('police_logged_in'):
+        flash('Please login to access the Police Portal', 'warning')
+        return redirect(url_for('police_login'))
+    
+    child = MissingChild.query.filter_by(report_id=report_id).first_or_404()
+    sightings = Sighting.query.filter_by(report_id=report_id).order_by(Sighting.sighting_time.asc()).all()
+    
+    return render_template('police/case_detail.html', child=child, sightings=sightings)
+
+@app.route('/police/logout')
+def police_logout():
+    """Police logout"""
+    session.pop('police_logged_in', None)
+    session.pop('police_username', None)
+    flash('Logged out successfully', 'info')
+    return redirect(url_for('index'))
+
 @app.route('/admin/analytics')
 @login_required
 def admin_analytics():
@@ -1405,12 +1676,45 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 
+@app.route('/case/<report_id>/poster')
+def download_poster(report_id):
+    """Generate and download a missing child poster as PNG image"""
+    try:
+        from utils.poster_generator import generate_missing_poster, poster_to_bytes
+        
+        missing_child = MissingChild.query.filter_by(report_id=report_id).first_or_404()
+        
+        # Generate poster
+        base_url = request.url_root.rstrip('/')
+        poster = generate_missing_poster(missing_child, base_url=base_url)
+        
+        # Convert to bytes
+        buffer = poster_to_bytes(poster, format='PNG')
+        
+        return Response(
+            buffer.getvalue(),
+            mimetype='image/png',
+            headers={
+                'Content-Disposition': f'attachment; filename=missing_poster_{report_id}.png'
+            }
+        )
+    except ImportError:
+        flash('Poster generation not available. Please install qrcode and Pillow.', 'error')
+        return redirect(url_for('case_detail', report_id=report_id))
+    except Exception as e:
+        print(f"❌ Poster generation error: {str(e)}")
+        flash(f'Error generating poster: {str(e)}', 'error')
+        return redirect(url_for('case_detail', report_id=report_id))
+
+
 @app.route('/ml')
+@login_required
 def ml_page():
     """Render a simple ML prediction UI integrated into the main site.
 
     The form uses JavaScript to call `/api/ml/predict` and `/api/ml/refine` so
     we keep the model functions and paths intact (they live in `predictor.py`).
+    Only accessible to logged-in users (admin/police).
     """
     return render_template('ml.html')
 

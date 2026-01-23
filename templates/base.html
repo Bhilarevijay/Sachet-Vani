@@ -6,6 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Missing Child Alert System{% endblock %}</title>
 
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Sachet - Community alert system to help find missing children">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Sachet">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+
     <!-- Preload fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,11 +53,30 @@
                             <i class="fas fa-home me-1"></i>Home
                         </a>
                     </li>
+                    {% if session.get('police_logged_in') and not current_user.is_authenticated %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('report_missing') }}">
-                            <i class="fas fa-exclamation-triangle me-1"></i>Report Missing Child
+                        <a class="nav-link" href="{{ url_for('police_dashboard') }}">
+                            <i class="fas fa-shield-alt me-1"></i>Police Dashboard
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('police_logout') }}">
+                            <i class="fas fa-sign-out-alt me-1"></i>Logout
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if current_user.is_authenticated %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('ml_page') }}">
+                            <i class="fas fa-brain me-1"></i>ML Predictions
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('admin_dashboard') }}">
+                            <i class="fas fa-cog me-1"></i>Admin
+                        </a>
+                    </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>
@@ -91,8 +119,8 @@
                 </div>
                 <div class="col-md-4">
                     <h6>Quick Actions</h6>
-                    <a href="{{ url_for('report_missing') }}" class="text-light text-decoration-none">
-                        <i class="fas fa-plus me-1"></i>Report Missing Child
+                    <a href="{{ url_for('index') }}" class="text-light text-decoration-none">
+                        <i class="fas fa-search me-1"></i>View Cases
                     </a>
                 </div>
             </div>
@@ -112,6 +140,21 @@
 
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .then(function (registration) {
+                        console.log('ServiceWorker registered:', registration.scope);
+                    })
+                    .catch(function (error) {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+    </script>
 
     {% block scripts %}{% endblock %}
 </body>

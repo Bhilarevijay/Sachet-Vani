@@ -43,6 +43,16 @@ class Config:
     TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
     TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
     
+    # Google Maps API (optional - for better geocoding)
+    GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
+    
+    # Telegram Bot (optional - for free alerts)
+    TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+    TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+    
+    # Discord Webhook (optional - for free alerts)
+    DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
+    
     # File Upload Configuration
     UPLOAD_FOLDER = os.path.join(basedir, 'static', 'uploads')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
@@ -58,6 +68,17 @@ class Config:
     ADMIN_ACCESS_TOKEN = os.environ.get('ADMIN_ACCESS_TOKEN')  # optional secret to reach login
     ADMIN_MAX_FAILED_ATTEMPTS = int(os.environ.get('ADMIN_MAX_FAILED_ATTEMPTS', '5'))
     ADMIN_LOCKOUT_MINUTES = int(os.environ.get('ADMIN_LOCKOUT_MINUTES', '15'))
+    
+    # Police access token (for authorized personnel to report missing children)
+    POLICE_ACCESS_TOKEN = os.environ.get('POLICE_ACCESS_TOKEN')
+    if not POLICE_ACCESS_TOKEN and not os.environ.get('RENDER'):
+        POLICE_ACCESS_TOKEN = 'police123'  # Default for development only
+    
+    # Police credentials (for login portal)
+    POLICE_USERNAME = os.environ.get('POLICE_USERNAME', 'police')
+    POLICE_PASSWORD = os.environ.get('POLICE_PASSWORD')
+    if not POLICE_PASSWORD and not os.environ.get('RENDER'):
+        POLICE_PASSWORD = 'police123'  # Default for development only
     
     # Environment
     ENV = os.environ.get('FLASK_ENV', 'production')

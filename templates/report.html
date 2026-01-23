@@ -72,6 +72,32 @@
                         <input type="time" class="form-control" id="abduction_time" name="abduction_time" required>
                     </div>
 
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="region_type" class="form-label">Region Type *</label>
+                                <select class="form-control" id="region_type" name="region_type" required>
+                                    <option value="Urban">Urban</option>
+                                    <option value="Suburban">Suburban</option>
+                                    <option value="Rural">Rural</option>
+                                </select>
+                                <div class="form-text">Type of area where child was last seen</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="abductor_relation" class="form-label">Suspected Abductor Relation</label>
+                                <select class="form-control" id="abductor_relation" name="abductor_relation">
+                                    <option value="stranger">Stranger</option>
+                                    <option value="family">Family Member</option>
+                                    <option value="acquaintance">Acquaintance</option>
+                                    <option value="unknown">Unknown</option>
+                                </select>
+                                <div class="form-text">Helps predict likely movement patterns</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="description" class="form-label">Description *</label>
                         <textarea class="form-control" id="description" name="description" rows="4" required

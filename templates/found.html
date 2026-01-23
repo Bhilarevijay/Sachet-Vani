@@ -93,6 +93,23 @@
                             placeholder="What was the child doing? Who were they with? Direction of travel..."></textarea>
                     </div>
 
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sighting_date" class="form-label">Sighting Date *</label>
+                                <input type="date" class="form-control" id="sighting_date" name="sighting_date" required>
+                                <div class="form-text">When did you see the child?</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sighting_time" class="form-label">Sighting Time (Approximate) *</label>
+                                <input type="time" class="form-control" id="sighting_time" name="sighting_time" required>
+                                <div class="form-text">What time did you see them?</div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="mb-3">
                         <label for="photo" class="form-label">Add Photo (Optional)</label>
                         <input type="file" class="form-control" id="photo" name="photo" accept="image/*">

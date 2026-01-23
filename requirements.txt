@@ -17,3 +17,15 @@ sentence-transformers>=2.2.2
 torch>=1.13.0
 scikit-learn>=1.2.0
 lightgbm>=4.0.0
+
+# Poster Generation
+qrcode>=7.4.2
+reportlab>=4.0.7
+
+# Free Alert Channels
+python-telegram-bot>=20.7
+
+# Optional: Face Recognition (requires dlib + cmake)
+# Uncomment below if your platform supports it:
+# face-recognition>=1.3.0
+# dlib>=19.24.0
