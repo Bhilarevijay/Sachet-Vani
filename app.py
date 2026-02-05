@@ -1385,54 +1385,60 @@ def admin_case_detail(report_id):
             heat_data.append([sighting.latitude, sighting.longitude, intensity])
 
     # Attempt to run ML prediction automatically using stored case and sightings
+    # DISABLED ON RENDER: ML models require too much memory for free tier
     ml_prediction = None
     ml_refined = None
-    try:
-        # Lazy import so admin pages still load if models are missing
-        from predictor import predict_initial_case, refine_location_with_sightings, haversine
-
-        # Build initial case input from stored fields (best-effort)
-        case_input = {
-            'child_age': missing_child.age or 0,
-            'child_gender': missing_child.gender or 'M',
-            'latitude': missing_child.last_seen_lat or 0,
-            'longitude': missing_child.last_seen_lng or 0,
-            # Use stored ML features
-            'abduction_time': missing_child.abduction_time if missing_child.abduction_time is not None else 12.0,
-            'abductor_relation': missing_child.abductor_relation or 'stranger',
-            'region_type': missing_child.region_type or 'Urban',
-            'population_density': missing_child.population_density or 5000,
-            'missing_date': missing_child.missing_date,
-        }
-
-        # Compute dist_to_nearest_city similar to other code paths
-        CITY_CENTERS = {'Mumbai':(19.0761,72.8775),'Pune':(18.5203,73.8567),'Nagpur':(21.1497,79.0806),'Nashik':(19.9975,73.7898)}
+    
+    # Skip ML on Render free tier (causes worker timeout/memory issues)
+    if not os.environ.get('RENDER'):
         try:
-            lat = float(case_input.get('latitude', 0))
-            lon = float(case_input.get('longitude', 0))
-            case_input['dist_to_nearest_city'] = min([haversine(lat, lon, c_lat, c_lon) for c_lat, c_lon in CITY_CENTERS.values()]) if CITY_CENTERS else 0
-        except Exception:
-            case_input['dist_to_nearest_city'] = 0
+            # Lazy import so admin pages still load if models are missing
+            from predictor import predict_initial_case, refine_location_with_sightings, haversine
 
-        # Prepare sightings list expected by predictor.refine_location_with_sightings
-        sighting_dicts = []
-        for s in sightings:
-            sighting_dicts.append({
-                'lat': s.latitude or 0,
-                'lon': s.longitude or 0,
-                'hours_since': (datetime.utcnow() - s.sighting_time).total_seconds() / 3600,
-                'direction_text': s.description or ''
-            })
+            # Build initial case input from stored fields (best-effort)
+            case_input = {
+                'child_age': missing_child.age or 0,
+                'child_gender': missing_child.gender or 'M',
+                'latitude': missing_child.last_seen_lat or 0,
+                'longitude': missing_child.last_seen_lng or 0,
+                # Use stored ML features
+                'abduction_time': missing_child.abduction_time if missing_child.abduction_time is not None else 12.0,
+                'abductor_relation': missing_child.abductor_relation or 'stranger',
+                'region_type': missing_child.region_type or 'Urban',
+                'population_density': missing_child.population_density or 5000,
+                'missing_date': missing_child.missing_date,
+            }
 
-        # Call model
-        ml_prediction = predict_initial_case(case_input)
-        # Only attempt refinement if there are sighting reports
-        if sighting_dicts:
-            rlat, rlon = refine_location_with_sightings(ml_prediction, sighting_dicts, case_input)
-            ml_refined = {'lat': rlat, 'lon': rlon}
-    except Exception as e:
-        # Don't raise for admin view; log and continue without ML
-        print(f"ML integration skipped for case {report_id}: {e}")
+            # Compute dist_to_nearest_city similar to other code paths
+            CITY_CENTERS = {'Mumbai':(19.0761,72.8775),'Pune':(18.5203,73.8567),'Nagpur':(21.1497,79.0806),'Nashik':(19.9975,73.7898)}
+            try:
+                lat = float(case_input.get('latitude', 0))
+                lon = float(case_input.get('longitude', 0))
+                case_input['dist_to_nearest_city'] = min([haversine(lat, lon, c_lat, c_lon) for c_lat, c_lon in CITY_CENTERS.values()]) if CITY_CENTERS else 0
+            except Exception:
+                case_input['dist_to_nearest_city'] = 0
+
+            # Prepare sightings list expected by predictor.refine_location_with_sightings
+            sighting_dicts = []
+            for s in sightings:
+                sighting_dicts.append({
+                    'lat': s.latitude or 0,
+                    'lon': s.longitude or 0,
+                    'hours_since': (datetime.utcnow() - s.sighting_time).total_seconds() / 3600,
+                    'direction_text': s.description or ''
+                })
+
+            # Call model
+            ml_prediction = predict_initial_case(case_input)
+            # Only attempt refinement if there are sighting reports
+            if sighting_dicts:
+                rlat, rlon = refine_location_with_sightings(ml_prediction, sighting_dicts, case_input)
+                ml_refined = {'lat': rlat, 'lon': rlon}
+        except Exception as e:
+            # Don't raise for admin view; log and continue without ML
+            print(f"ML integration skipped for case {report_id}: {e}")
+    else:
+        print(f"ML skipped on Render for case {report_id} (memory constraints)")
 
     # Fetch active risk zones for the map
     risk_zones = [z.to_dict() for z in RiskZone.query.filter_by(is_active=True).all()]
