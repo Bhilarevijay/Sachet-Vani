@@ -1482,6 +1482,13 @@ def admin_logout():
 @app.route('/police/login', methods=['GET', 'POST'])
 def police_login():
     """Police login portal"""
+    # Obfuscation: require a valid access token hint via query/header to render login
+    required_token = app.config.get('POLICE_ACCESS_TOKEN')
+    provided_token = request.args.get('t') or request.headers.get('X-Police-Token')
+    if required_token and provided_token != required_token:
+        # Return 404 to avoid revealing police endpoint
+        return render_template('errors/404.html'), 404
+    
     # Block admin users from accessing police login
     if current_user.is_authenticated:
         flash('Admin users cannot access Police Portal. Please use Admin Dashboard.', 'warning')
