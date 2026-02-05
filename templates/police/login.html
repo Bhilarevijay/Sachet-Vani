@@ -26,7 +26,7 @@
                     {% endif %}
                     {% endwith %}
 
-                    <form method="POST" action="{{ url_for('police_login') }}">
+                    <form method="POST" action="{{ request.url }}">
                         <div class="mb-3">
                             <label for="username" class="form-label">
                                 <i class="fas fa-user me-1"></i>Username
